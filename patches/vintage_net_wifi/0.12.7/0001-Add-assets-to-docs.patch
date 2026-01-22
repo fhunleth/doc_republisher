@@ -1,0 +1,24 @@
+From 92413bef43b1f0ab716dc5c5d794c10884f7b3f6 Mon Sep 17 00:00:00 2001
+From: Frank Hunleth <fhunleth@troodon-software.com>
+Date: Thu, 22 Jan 2026 21:28:54 -0500
+Subject: [PATCH] Add assets to docs
+
+---
+ mix.exs | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/mix.exs b/mix.exs
+index 895ca8f..c544302 100644
+--- a/mix.exs
++++ b/mix.exs
+@@ -93,6 +93,7 @@ defmodule VintageNetWiFi.MixProject do
+ 
+   defp docs do
+     [
++      assets: %{"assets" => "assets"},
+       extras: ["README.md", "CHANGELOG.md"],
+       main: "readme",
+       source_ref: "v#{@version}",
+-- 
+2.52.0
+

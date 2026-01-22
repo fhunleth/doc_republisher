@@ -1,0 +1,25 @@
+From 19be0159bef6fd3fbf9d7969047840ab33b9d535 Mon Sep 17 00:00:00 2001
+From: Frank Hunleth <fhunleth@troodon-software.com>
+Date: Sun, 8 Sep 2024 11:25:55 -0400
+Subject: [PATCH] Bump ex_doc and fix deprecation warning
+
+---
+ mix.exs  | 2 +-
+ 2 files changed, 4 insertions(+), 4 deletions(-)
+
+diff --git a/mix.exs b/mix.exs
+index 9f109ce..22ad42e 100644
+--- a/mix.exs
++++ b/mix.exs
+@@ -65,7 +65,7 @@ defmodule Circuits.SPI.MixProject do
+
+   defp docs do
+     [
+-      assets: "assets",
++      assets: %{"assets" => "assets"},
+       extras: ["README.md", "PORTING.md", "CHANGELOG.md"],
+       main: "readme",
+       source_ref: "v#{@version}",
+--
+2.52.0
+

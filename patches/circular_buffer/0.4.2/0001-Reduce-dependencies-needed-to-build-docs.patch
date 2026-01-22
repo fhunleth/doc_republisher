@@ -1,0 +1,46 @@
+From e79662ef2c5f38771cc832fd3d093dc6fa570497 Mon Sep 17 00:00:00 2001
+From: Frank Hunleth <fhunleth@troodon-software.com>
+Date: Thu, 22 Jan 2026 16:04:39 -0500
+Subject: [PATCH] Reduce dependencies needed to build docs
+
+This fixes an issue with a script that refreshes docs on ex_doc updates.
+---
+ mix.exs | 20 ++++++++++++++++----
+ 1 file changed, 16 insertions(+), 4 deletions(-)
+
+diff --git a/mix.exs b/mix.exs
+index ee7d6cf..0c75f91 100644
+--- a/mix.exs
++++ b/mix.exs
+@@ -26,12 +26,24 @@ defmodule CircularBuffer.MixProject do
+     []
+   end
+ 
++  def cli do
++    [
++      preferred_envs: %{
++        dialyzer: :test,
++        docs: :docs,
++        "hex.build": :docs,
++        "hex.publish": :docs,
++        credo: :test
++      }
++    ]
++  end
++
+   defp deps do
+     [
+-      {:propcheck, "~> 1.2", only: [:dev, :test]},
+-      {:credo, "~> 1.5", only: [:dev, :test], runtime: false},
+-      {:ex_doc, "~> 0.19", only: [:dev, :test], runtime: false},
+-      {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false}
++      {:propcheck, "~> 1.2", only: :test},
++      {:credo, "~> 1.5", only: :test, runtime: false},
++      {:ex_doc, "~> 0.19", only: :docs, runtime: false},
++      {:dialyxir, "~> 1.4", only: :test, runtime: false}
+     ]
+   end
+ 
+-- 
+2.52.0
+
