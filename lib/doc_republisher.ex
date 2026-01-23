@@ -30,6 +30,7 @@ defmodule DocRepublisher do
         log_both("\nWARNING: #{reason}")
         log_both("Set the HEX_API_KEY environment variable to publish docs.")
         log_both("Generate an API key at: https://hex.pm/settings/keys\n")
+        System.halt(1)
     end
 
     case fetch_latest_ex_doc_version() do
@@ -39,24 +40,11 @@ defmodule DocRepublisher do
         print_summary(updated, failed)
 
       {:error, reason} ->
-        Logger.error("Failed to fetch latest ex_doc version: #{reason}")
+        log_both("Failed to fetch latest ex_doc version: #{reason}")
+        System.halt(1)
     end
 
     :ok
-  end
-
-  @doc """
-  Hello world.
-
-  ## Examples
-
-      iex> DocRepublisher.hello()
-      :world
-
-  """
-  @spec hello() :: :world
-  def hello do
-    :world
   end
 
   defp process_packages(packages, latest_ex_doc_version, exit_on_failure) do
@@ -91,7 +79,11 @@ defmodule DocRepublisher do
                       case republish_docs(package, version, git_url, latest_ex_doc_version) do
                         :ok ->
                           log_both("    ✓ Successfully republished")
-                          maybe_cont({[{package, version} | updated_acc], failed_acc}, exit_on_failure)
+
+                          maybe_cont(
+                            {[{package, version} | updated_acc], failed_acc},
+                            exit_on_failure
+                          )
 
                         {:error, reason} ->
                           log_both("    ✗ Failed: #{String.slice(reason, 0, 100)}...")
