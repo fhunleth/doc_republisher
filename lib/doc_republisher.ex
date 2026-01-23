@@ -139,7 +139,7 @@ defmodule DocRepublisher do
       |> Enum.filter(fn release -> is_nil(release["retired"]) end)
       |> Enum.map(& &1["version"])
       |> Enum.filter(&is_binary/1)
-      |> Enum.filter(&Version.match?(&1, version_req))
+      |> Enum.filter(&Version.match?(&1, version_req, allow_pre: false))
       |> Enum.sort(&(Version.compare(&1, &2) == :gt))
       |> Enum.take(3)
       |> then(&{:ok, &1})
