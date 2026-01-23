@@ -182,8 +182,9 @@ defmodule DocRepublisher do
 
   defp verify_docs_updated(package, version, latest_ex_doc_version) do
     log_file_only("      Verifying docs were updated...")
-    # Wait a moment for hexdocs to process
-    Process.sleep(2000)
+    # Wait a moment for hexdocs to process.
+    # 2 seconds is sometimes too short
+    Process.sleep(5000)
 
     url = "https://hexdocs.pm/#{package}/#{version}/"
 
