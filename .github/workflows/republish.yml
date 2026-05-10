@@ -19,6 +19,24 @@ jobs:
   republish:
     runs-on: ubuntu-latest
     steps:
+      - name: Verify HEX_API_KEY is set and accepted by hex.pm
+        env:
+          HEX_API_KEY: ${{ secrets.HEX_API_KEY }}
+        run: |
+          if [ -z "$HEX_API_KEY" ]; then
+            echo "::error::HEX_API_KEY secret is not set on this repository. Add it under Settings → Secrets and variables → Actions."
+            exit 1
+          fi
+          status=$(curl -sS -o /tmp/hex-me.json -w '%{http_code}' \
+            -H "Authorization: $HEX_API_KEY" \
+            -H 'Accept: application/vnd.hex+json' \
+            https://hex.pm/api/users/me)
+          if [ "$status" != "200" ]; then
+            echo "::error::hex.pm rejected HEX_API_KEY (HTTP $status). Check the key value and that it has not been revoked."
+            exit 1
+          fi
+          echo "Authenticated as $(jq -r .username /tmp/hex-me.json)"
+
       - uses: actions/checkout@v5
 
       - name: Look up latest ex_doc version on hex.pm
