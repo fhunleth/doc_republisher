@@ -216,38 +216,45 @@ defmodule DocRepublisher do
       # Prepare environment with hex auth if available
       env = build_hex_env()
 
-      with :ok <-
-             (
-               log_file_only("      Cloning repository...")
-               run_cmd("git", ["clone", git_url, dir], timeout: 300)
-             ),
-           :ok <-
-             (
-               log_file_only("      Checking out v#{version}...")
-               run_cmd("git", ["checkout", "v#{version}"], cd: dir, timeout: 60)
-             ),
+      with :ok <- step("Cloning repository", fn ->
+             run_cmd("git", ["clone", git_url, dir], timeout: 300)
+           end),
+           :ok <- step("Checking out v#{version}", fn ->
+             run_cmd("git", ["checkout", "v#{version}"], cd: dir, timeout: 60)
+           end),
            :ok <- apply_patches(package, version, dir),
-           :ok <-
-             (
-               log_file_only("      Getting dependencies...")
-               run_cmd("mix", ["deps.get"], cd: dir, env: env, timeout: 300)
-             ),
-           :ok <-
-             (
-               log_file_only("      Updating ex_doc...")
-               run_cmd("mix", ["deps.update", "ex_doc"], cd: dir, env: env, timeout: 300)
-             ),
-           :ok <-
-             (
-               log_file_only("      Publishing docs...")
-               run_cmd("mix", ["hex.publish", "docs", "--yes"], cd: dir, env: env, timeout: 600)
-             ),
+           :ok <- step("Getting dependencies", fn ->
+             run_cmd("mix", ["deps.get"], cd: dir, env: env, timeout: 300)
+           end),
+           :ok <- step("Updating ex_doc", fn ->
+             run_cmd("mix", ["deps.update", "ex_doc"], cd: dir, env: env, timeout: 300)
+           end),
+           :ok <- step("Publishing docs", fn ->
+             run_cmd("mix", ["hex.publish", "docs", "--yes"], cd: dir, env: env, timeout: 600)
+           end),
            :ok <- verify_docs_updated(package, version, latest_ex_doc_version) do
         :ok
       else
         {:error, reason} -> {:error, reason}
       end
     end)
+  end
+
+  defp step(label, fun) do
+    log_both("      #{label}...")
+    started = System.monotonic_time(:millisecond)
+
+    case fun.() do
+      :ok ->
+        elapsed = System.monotonic_time(:millisecond) - started
+        log_both("      ✓ #{label} (#{elapsed} ms)")
+        :ok
+
+      {:error, reason} ->
+        elapsed = System.monotonic_time(:millisecond) - started
+        log_both("      ✗ #{label} after #{elapsed} ms")
+        {:error, reason}
+    end
   end
 
   defp with_temp_dir(package, version, fun) do
