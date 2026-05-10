@@ -1,0 +1,89 @@
+name: Republish docs
+
+on:
+  schedule:
+    # Mondays at 04:17 UTC. Off-peak to avoid GitHub's scheduled-run queue.
+    - cron: '17 4 * * 1'
+  workflow_dispatch:
+    inputs:
+      force:
+        description: 'Run even if the latest ex_doc has already been processed'
+        type: boolean
+        default: false
+
+concurrency:
+  group: republish-docs
+  cancel-in-progress: false
+
+jobs:
+  republish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Look up latest ex_doc version on hex.pm
+        id: ex_doc
+        run: |
+          version=$(curl -fsSL -H 'Accept: application/vnd.hex+json' \
+            https://hex.pm/api/packages/ex_doc \
+            | jq -r '[.releases[].version | select(test("^[0-9]+\\.[0-9]+\\.[0-9]+$"))] | first')
+          if [ -z "$version" ] || [ "$version" = "null" ]; then
+            echo "Failed to determine latest ex_doc version" >&2
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "Latest stable ex_doc: $version"
+
+      - name: Has this ex_doc version already been processed?
+        id: marker
+        if: ${{ !inputs.force }}
+        uses: actions/cache/restore@v4
+        with:
+          path: .ex-doc-marker
+          key: ex-doc-processed-${{ steps.ex_doc.outputs.version }}
+          lookup-only: true
+
+      - name: Set up Erlang and Elixir
+        if: steps.marker.outputs.cache-hit != 'true'
+        uses: erlef/setup-beam@v1
+        with:
+          version-file: .tool-versions
+          version-type: strict
+
+      - name: Cache mix deps
+        if: steps.marker.outputs.cache-hit != 'true'
+        uses: actions/cache@v4
+        with:
+          path: |
+            deps
+            _build
+          key: mix-${{ runner.os }}-${{ hashFiles('mix.lock') }}
+
+      - name: Install mix deps
+        if: steps.marker.outputs.cache-hit != 'true'
+        run: mix deps.get
+
+      - name: Run republisher
+        if: steps.marker.outputs.cache-hit != 'true'
+        env:
+          HEX_API_KEY: ${{ secrets.HEX_API_KEY }}
+        run: mix run -e "DocRepublisher.run()"
+
+      - name: Record processed ex_doc version
+        if: steps.marker.outputs.cache-hit != 'true'
+        run: echo "${{ steps.ex_doc.outputs.version }}" > .ex-doc-marker
+
+      - name: Save marker so this version is skipped next week
+        if: steps.marker.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: .ex-doc-marker
+          key: ex-doc-processed-${{ steps.ex_doc.outputs.version }}
+
+      - name: Upload log
+        if: always() && steps.marker.outputs.cache-hit != 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: doc-republisher-log
+          path: doc_republisher.log
+          if-no-files-found: ignore
