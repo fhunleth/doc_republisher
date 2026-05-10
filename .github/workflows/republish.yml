@@ -19,7 +19,7 @@ jobs:
   republish:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Look up latest ex_doc version on hex.pm
         id: ex_doc
@@ -37,7 +37,7 @@ jobs:
       - name: Has this ex_doc version already been processed?
         id: marker
         if: ${{ !inputs.force }}
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v5
         with:
           path: .ex-doc-marker
           key: ex-doc-processed-${{ steps.ex_doc.outputs.version }}
@@ -52,7 +52,7 @@ jobs:
 
       - name: Cache mix deps
         if: steps.marker.outputs.cache-hit != 'true'
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             deps
@@ -75,14 +75,14 @@ jobs:
 
       - name: Save marker so this version is skipped next week
         if: steps.marker.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v5
         with:
           path: .ex-doc-marker
           key: ex-doc-processed-${{ steps.ex_doc.outputs.version }}
 
       - name: Upload log
         if: always() && steps.marker.outputs.cache-hit != 'true'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: doc-republisher-log
           path: doc_republisher.log
