@@ -266,7 +266,7 @@ defmodule DocRepublisher do
     end
   end
 
-  defp run_cmd(command, args, opts \\ []) do
+  defp run_cmd(command, args, opts) do
     {timeout, opts} = Keyword.pop(opts, :timeout)
     cmd_opts = Keyword.merge([stderr_to_stdout: true], opts)
 
