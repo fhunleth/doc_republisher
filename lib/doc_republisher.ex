@@ -219,28 +219,28 @@ defmodule DocRepublisher do
       with :ok <-
              (
                log_file_only("      Cloning repository...")
-               run_cmd("git", ["clone", git_url, dir])
+               run_cmd("git", ["clone", git_url, dir], timeout: 300)
              ),
            :ok <-
              (
                log_file_only("      Checking out v#{version}...")
-               run_cmd("git", ["checkout", "v#{version}"], cd: dir)
+               run_cmd("git", ["checkout", "v#{version}"], cd: dir, timeout: 60)
              ),
            :ok <- apply_patches(package, version, dir),
            :ok <-
              (
                log_file_only("      Getting dependencies...")
-               run_cmd("mix", ["deps.get"], cd: dir, env: env)
+               run_cmd("mix", ["deps.get"], cd: dir, env: env, timeout: 300)
              ),
            :ok <-
              (
                log_file_only("      Updating ex_doc...")
-               run_cmd("mix", ["deps.update", "ex_doc"], cd: dir, env: env)
+               run_cmd("mix", ["deps.update", "ex_doc"], cd: dir, env: env, timeout: 300)
              ),
            :ok <-
              (
                log_file_only("      Publishing docs...")
-               run_cmd("mix", ["hex.publish", "docs", "--yes"], cd: dir, env: env)
+               run_cmd("mix", ["hex.publish", "docs", "--yes"], cd: dir, env: env, timeout: 600)
              ),
            :ok <- verify_docs_updated(package, version, latest_ex_doc_version) do
         :ok
@@ -267,16 +267,43 @@ defmodule DocRepublisher do
   end
 
   defp run_cmd(command, args, opts \\ []) do
+    {timeout, opts} = Keyword.pop(opts, :timeout)
     cmd_opts = Keyword.merge([stderr_to_stdout: true], opts)
 
-    {output, status} = System.cmd(command, args, cmd_opts)
+    {actual_command, actual_args} = wrap_with_timeout(command, args, timeout)
+    {output, status} = System.cmd(actual_command, actual_args, cmd_opts)
     log_file_only("#{command} #{inspect(args)} -> #{output}")
 
-    if status == 0 do
-      :ok
-    else
-      {:error, String.trim(output)}
+    cond do
+      status == 0 ->
+        :ok
+
+      timeout && status == 124 ->
+        {:error, "Timed out after #{timeout}s: #{command} #{Enum.join(args, " ")}"}
+
+      true ->
+        {:error, String.trim(output)}
     end
+  end
+
+  # Wraps a command with `timeout` (or `gtimeout` on macOS) so a hung subprocess
+  # — stuck git fetch, blocked Hex upload, etc. — fails cleanly instead of
+  # blocking the whole run. SIGTERM at the deadline; SIGKILL 10 s after that.
+  defp wrap_with_timeout(command, args, nil), do: {command, args}
+
+  defp wrap_with_timeout(command, args, seconds) do
+    case timeout_executable() do
+      nil ->
+        Logger.warning("`timeout` not on PATH; running #{command} without a timeout")
+        {command, args}
+
+      tool ->
+        {tool, ["--kill-after=10", "#{seconds}", command | args]}
+    end
+  end
+
+  defp timeout_executable do
+    System.find_executable("timeout") || System.find_executable("gtimeout")
   end
 
   defp build_hex_env do
@@ -306,7 +333,7 @@ defmodule DocRepublisher do
             if File.regular?(patch_file) do
               log_file_only("        Applying #{file}...")
 
-              case run_cmd("sh", ["-c", "patch -p1 < #{patch_file}"], cd: dir) do
+              case run_cmd("sh", ["-c", "patch -p1 < #{patch_file}"], cd: dir, timeout: 60) do
                 :ok -> {:cont, :ok}
                 {:error, reason} -> {:halt, {:error, "Patch #{file} failed: #{reason}"}}
               end
