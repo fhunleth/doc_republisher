@@ -38,6 +38,7 @@ defmodule DocRepublisher do
         log_both("Latest ex_doc version: #{latest_ex_doc_version}")
         {updated, failed} = process_packages(packages, latest_ex_doc_version, exit_on_failure)
         print_summary(updated, failed)
+        if failed != [], do: System.halt(1)
 
       {:error, reason} ->
         log_both("Failed to fetch latest ex_doc version: #{reason}")
