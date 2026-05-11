@@ -1,7 +1,6 @@
 import Config
 
 config :doc_republisher,
-  exit_on_failure: true,
   log_file: "doc_republisher.log",
   packages: [
     {:alarmist, github: "smartrent/alarmist"},

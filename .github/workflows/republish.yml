@@ -68,6 +68,15 @@ jobs:
           version-file: .tool-versions
           version-type: strict
 
+      # Headers needed by packages that build NIFs against system libs:
+      # libmnl-dev/libnl-genl-3-dev → vintage_net, nerves_uevent (and their
+      # transitive dependents). libfluidsynth-dev → midi_synth.
+      - name: Install system libraries for NIF builds
+        if: steps.marker.outputs.cache-hit != 'true'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libmnl-dev libnl-genl-3-dev libfluidsynth-dev
+
       - name: Cache mix deps
         if: steps.marker.outputs.cache-hit != 'true'
         uses: actions/cache@v5
@@ -80,6 +89,13 @@ jobs:
       - name: Install mix deps
         if: steps.marker.outputs.cache-hit != 'true'
         run: mix deps.get
+
+      # The `nerves` package's mix.exs calls Nerves.Bootstrap functions
+      # during deps.get, so the archive has to be available before
+      # we try to republish it.
+      - name: Install nerves_bootstrap archive
+        if: steps.marker.outputs.cache-hit != 'true'
+        run: mix archive.install hex nerves_bootstrap --force
 
       - name: Run republisher
         if: steps.marker.outputs.cache-hit != 'true'

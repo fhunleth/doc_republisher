@@ -11,7 +11,6 @@ defmodule DocRepublisher do
   @spec run() :: :ok
   def run do
     packages = Application.get_env(:doc_republisher, :packages, [])
-    exit_on_failure = Application.get_env(:doc_republisher, :exit_on_failure, false)
     log_file = Application.get_env(:doc_republisher, :log_file, "doc_republisher.log")
 
     # Initialize log file
@@ -36,7 +35,7 @@ defmodule DocRepublisher do
     case fetch_latest_ex_doc_version() do
       {:ok, latest_ex_doc_version} ->
         log_both("Latest ex_doc version: #{latest_ex_doc_version}")
-        {updated, failed} = process_packages(packages, latest_ex_doc_version, exit_on_failure)
+        {updated, failed} = process_packages(packages, latest_ex_doc_version)
         print_summary(updated, failed)
         if failed != [], do: System.halt(1)
 
@@ -48,88 +47,61 @@ defmodule DocRepublisher do
     :ok
   end
 
-  defp process_packages(packages, latest_ex_doc_version, exit_on_failure) do
-    reducer = if exit_on_failure, do: :reduce_while, else: :reduce
+  defp process_packages(packages, latest_ex_doc_version) do
+    Enum.reduce(packages, {[], []}, fn {package, opts}, {updated, failed} ->
+      log_both("\nProcessing #{package}...")
+      log_file_only("  Options: #{inspect(opts)}")
 
-    apply(Enum, reducer, [
-      packages,
-      {[], []},
-      fn {package, opts}, {updated, failed} ->
-        log_both("\nProcessing #{package}...")
-        log_file_only("  Options: #{inspect(opts)}")
+      github = Keyword.fetch!(opts, :github)
+      git_url = "https://github.com/#{github}.git"
+      version_req = Keyword.get(opts, :versions, "> 0.0.0")
 
-        github = Keyword.fetch!(opts, :github)
-        git_url = "https://github.com/#{github}.git"
-        version_req = Keyword.get(opts, :versions, "> 0.0.0")
+      case fetch_recent_versions(package, version_req) do
+        {:ok, versions} ->
+          log_both("  Found versions: #{Enum.join(versions, ", ")}")
 
-        case fetch_recent_versions(package, version_req) do
-          {:ok, versions} ->
-            log_both("  Found versions: #{Enum.join(versions, ", ")}")
+          Enum.reduce(versions, {updated, failed}, fn version, {updated_acc, failed_acc} ->
+            log_both("  Checking #{package} #{version}...")
 
-            result =
-              apply(Enum, reducer, [
-                versions,
-                {updated, failed},
-                fn version, {updated_acc, failed_acc} ->
-                  log_both("  Checking #{package} #{version}...")
+            process_version(
+              package,
+              version,
+              git_url,
+              latest_ex_doc_version,
+              updated_acc,
+              failed_acc
+            )
+          end)
 
-                  case doc_needs_update?(package, version, latest_ex_doc_version) do
-                    {:ok, true} ->
-                      log_both("    Republishing docs...")
-
-                      case republish_docs(package, version, git_url, latest_ex_doc_version) do
-                        :ok ->
-                          log_both("    ✓ Successfully republished")
-
-                          maybe_cont(
-                            {[{package, version} | updated_acc], failed_acc},
-                            exit_on_failure
-                          )
-
-                        {:error, reason} ->
-                          log_both("    ✗ Failed: #{String.slice(reason, 0, 100)}...")
-                          log_file_only("    Full error: #{reason}")
-                          new_state = {updated_acc, [{package, version, reason} | failed_acc]}
-
-                          if exit_on_failure do
-                            {:halt, new_state}
-                          else
-                            maybe_cont(new_state, exit_on_failure)
-                          end
-                      end
-
-                    {:ok, false} ->
-                      maybe_cont({updated_acc, failed_acc}, exit_on_failure)
-
-                    {:error, reason} ->
-                      new_state = {updated_acc, [{package, version, reason} | failed_acc]}
-
-                      if exit_on_failure do
-                        {:halt, new_state}
-                      else
-                        maybe_cont(new_state, exit_on_failure)
-                      end
-                  end
-                end
-              ])
-
-            maybe_cont(result, exit_on_failure)
-
-          {:error, reason} ->
-            new_state = {updated, [{package, "unknown", reason} | failed]}
-
-            if exit_on_failure do
-              {:halt, new_state}
-            else
-              maybe_cont(new_state, exit_on_failure)
-            end
-        end
+        {:error, reason} ->
+          {updated, [{package, "unknown", reason} | failed]}
       end
-    ])
+    end)
   end
 
-  defp maybe_cont(state, true), do: {:cont, state}
-  defp maybe_cont(state, false), do: state
+  defp process_version(package, version, git_url, latest_ex_doc_version, updated_acc, failed_acc) do
+    case doc_needs_update?(package, version, latest_ex_doc_version) do
+      {:ok, true} ->
+        log_both("    Republishing docs...")
+
+        case republish_docs(package, version, git_url, latest_ex_doc_version) do
+          :ok ->
+            log_both("    ✓ Successfully republished")
+            {[{package, version} | updated_acc], failed_acc}
+
+          {:error, reason} ->
+            log_both("    ✗ Failed: #{String.slice(reason, 0, 100)}...")
+            log_file_only("    Full error: #{reason}")
+            {updated_acc, [{package, version, reason} | failed_acc]}
+        end
+
+      {:ok, false} ->
+        {updated_acc, failed_acc}
+
+      {:error, reason} ->
+        {updated_acc, [{package, version, reason} | failed_acc]}
+    end
+  end
 
   defp fetch_recent_versions(package, version_req) do
     log_file_only("  Fetching versions from hex.pm...")
@@ -181,12 +153,33 @@ defmodule DocRepublisher do
     end
   end
 
+  # hexdocs.pm needs time to process a publish before the generator tag flips.
+  # Poll with increasing delays — most updates land within a few seconds, but
+  # we've seen them take much longer.
+  @verify_delays_ms [5_000, 10_000, 20_000, 30_000]
+
   defp verify_docs_updated(package, version, latest_ex_doc_version) do
     log_file_only("      Verifying docs were updated...")
-    # Wait a moment for hexdocs to process.
-    # 2 seconds is sometimes too short
-    Process.sleep(5000)
+    do_verify_docs_updated(package, version, latest_ex_doc_version, @verify_delays_ms)
+  end
 
+  defp do_verify_docs_updated(package, version, latest_ex_doc_version, [delay | rest]) do
+    Process.sleep(delay)
+
+    case check_generator_tag(package, version, latest_ex_doc_version) do
+      :ok ->
+        :ok
+
+      {:error, _reason} = error when rest == [] ->
+        error
+
+      {:error, reason} ->
+        log_file_only("      Verify attempt failed (#{reason}); retrying...")
+        do_verify_docs_updated(package, version, latest_ex_doc_version, rest)
+    end
+  end
+
+  defp check_generator_tag(package, version, latest_ex_doc_version) do
     url = "https://hexdocs.pm/#{package}/#{version}/"
 
     with {:ok, body} <- req_get(url) do
@@ -217,22 +210,27 @@ defmodule DocRepublisher do
       # Prepare environment with hex auth if available
       env = build_hex_env()
 
-      with :ok <- step("Cloning repository", fn ->
-             run_cmd("git", ["clone", git_url, dir], timeout: 300)
-           end),
-           :ok <- step("Checking out v#{version}", fn ->
-             run_cmd("git", ["checkout", "v#{version}"], cd: dir, timeout: 60)
-           end),
+      with :ok <-
+             step("Cloning repository", fn ->
+               run_cmd("git", ["clone", git_url, dir], timeout: 300)
+             end),
+           :ok <-
+             step("Checking out v#{version}", fn ->
+               run_cmd("git", ["checkout", "v#{version}"], cd: dir, timeout: 60)
+             end),
            :ok <- apply_patches(package, version, dir),
-           :ok <- step("Getting dependencies", fn ->
-             run_cmd("mix", ["deps.get"], cd: dir, env: env, timeout: 300)
-           end),
-           :ok <- step("Updating ex_doc", fn ->
-             run_cmd("mix", ["deps.update", "ex_doc"], cd: dir, env: env, timeout: 300)
-           end),
-           :ok <- step("Publishing docs", fn ->
-             run_cmd("mix", ["hex.publish", "docs", "--yes"], cd: dir, env: env, timeout: 600)
-           end),
+           :ok <-
+             step("Getting dependencies", fn ->
+               run_cmd("mix", ["deps.get"], cd: dir, env: env, timeout: 300)
+             end),
+           :ok <-
+             step("Updating ex_doc", fn ->
+               run_cmd("mix", ["deps.update", "ex_doc"], cd: dir, env: env, timeout: 300)
+             end),
+           :ok <-
+             step("Publishing docs", fn ->
+               run_cmd("mix", ["hex.publish", "docs", "--yes"], cd: dir, env: env, timeout: 600)
+             end),
            :ok <- verify_docs_updated(package, version, latest_ex_doc_version) do
         :ok
       else
